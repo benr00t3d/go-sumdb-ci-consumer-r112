@@ -1,0 +1,70 @@
+name: Reporter owned SumDB CI proof
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  stock-go-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GOPROXY: https://go-sumdb-r112-ci-proxy-o324i7mbdq-uc.a.run.app/r112-ci-2f63673b0acf23e527576b36a22be31b
+      GOSUMDB: sum.golang.org
+      GONOSUMDB: ""
+      GOPRIVATE: ""
+      GONOPROXY: none
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "1"
+      GOFLAGS: -modcacherw
+      R112_MARKER_DIR: /tmp/r112-proof-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.x
+          cache: false
+      - name: Run stock Go build
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$R112_MARKER_DIR"
+          go clean -modcache
+          go mod tidy
+          go test ./...
+          marker="$R112_MARKER_DIR/compiler-wrapper-executed"
+          test -s "$marker"
+          grep -Fqx 'REPORTER_OWNED_FALSE_SUMDB_BUILD_EXEC_R112' "$marker"
+      - name: Record bounded execution receipt
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="$R112_MARKER_DIR/compiler-wrapper-executed"
+          {
+            printf 'schema=r112-google-signed-crosskey-github-actions/v1\n'
+            printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'go_version=%s\n' "$(go version)"
+            printf 'goproxy=%s\n' "$(go env GOPROXY)"
+            printf 'gosumdb=%s\n' "$(go env GOSUMDB)"
+            printf 'cgo_enabled=%s\n' "$(go env CGO_ENABLED)"
+            printf 'marker_lines=%s\n' "$(wc -l < "$marker")"
+            printf 'marker_sha256=%s\n' "$(sha256sum "$marker" | cut -d' ' -f1)"
+            printf 'marker_value=%s\n' "$(sort -u "$marker")"
+          } | tee r112-ci-receipt.txt
+      - name: Upload receipt
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r112-ci-receipt
+          path: r112-ci-receipt.txt
+          if-no-files-found: error
+          retention-days: 30
