@@ -10,6 +10,7 @@ permissions:
 jobs:
   stock-go-build:
     runs-on: ubuntu-24.04
+    container: golang:1.25-bookworm
     timeout-minutes: 10
     env:
       GOPROXY: https://go-sumdb-r112-ci-proxy-o324i7mbdq-uc.a.run.app/r112-ci-2f63673b0acf23e527576b36a22be31b
@@ -23,10 +24,6 @@ jobs:
       R112_MARKER_DIR: /tmp/r112-proof-ci
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 1.25.x
-          cache: false
       - name: Run stock Go build
         shell: bash
         run: |
